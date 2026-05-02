@@ -15,7 +15,7 @@
 #####
 # STEP 1: base image
 #####
-FROM --platform=$BUILDPLATFORM alpine:3.21 AS base
+FROM --platform=$BUILDPLATFORM dhi.io/alpine-base:3.23 AS base
 ARG BUILDPLATFORM
 RUN apk add -U --no-cache curl unzip git bash ca-certificates && \
     apk upgrade && \
