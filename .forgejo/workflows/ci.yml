@@ -42,7 +42,7 @@ jobs:
     steps:
       - name: Checkout
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
         run: |
           git config --global init.defaultBranch main
           git init .
@@ -65,7 +65,7 @@ jobs:
     steps:
       - name: Checkout
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
         run: |
           git config --global init.defaultBranch main
           git init .
@@ -103,7 +103,7 @@ jobs:
     steps:
       - name: Checkout
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
         run: |
           git config --global init.defaultBranch main
           git init .
