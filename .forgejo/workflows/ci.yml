@@ -9,8 +9,8 @@
 # Checkout: Shell-basiert (git init + git fetch) — kein Node.js nötig.
 # Docker-Daemon: Direkt über tcp://docker-in-docker:2375 (runner-net).
 #
-# Versionierung: Tag = OpenTofu-Version (z.B. v1.10.0)
-#   → tcwlab/opentofu:1.10.0 + tcwlab/opentofu:latest
+# Versionierung: Tag = OpenTofu-Version (z.B. v1.11.6)
+#   → tcwlab/opentofu:1.11.6 + tcwlab/opentofu:latest
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: ci

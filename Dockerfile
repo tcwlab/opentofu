@@ -2,14 +2,14 @@
 # tcwlab/opentofu
 #
 # Minimales Alpine-Image mit gepinnter OpenTofu-Version.
-# Der Image-Tag entspricht der OpenTofu-Version: tcwlab/opentofu:1.10.0
+# Der Image-Tag entspricht der OpenTofu-Version: tcwlab/opentofu:1.11.6
 #
 # Unterstützte Plattformen: linux/amd64, linux/arm64
 #
 # Build (multi-arch):
 #   docker buildx build --platform linux/amd64,linux/arm64 \
-#     --build-arg TOFU_VERSION=1.10.0 \
-#     -t tcwlab/opentofu:1.10.0 --push .
+#     --build-arg TOFU_VERSION=1.11.6 \
+#     -t tcwlab/opentofu:1.11.6 --push .
 # ─────────────────────────────────────────────────────────────────────────────
 
 #####
@@ -25,7 +25,7 @@ RUN apk add -U --no-cache curl unzip git bash ca-certificates && \
 # STEP 2: download OpenTofu binary (arch-aware)
 #####
 FROM base AS dependencies
-ARG TOFU_VERSION=1.10.0
+ARG TOFU_VERSION=1.11.6
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN case "$(apk --print-arch)" in \
         aarch64) LOCAL_ARCH="arm64" ;; \
@@ -44,7 +44,7 @@ RUN case "$(apk --print-arch)" in \
 # STEP 3: production image
 #####
 FROM base AS release
-ARG TOFU_VERSION=1.10.0
+ARG TOFU_VERSION=1.11.6
 
 LABEL org.opencontainers.image.title="opentofu" \
       org.opencontainers.image.description="opentofu — pinned version for reproducible CI" \
