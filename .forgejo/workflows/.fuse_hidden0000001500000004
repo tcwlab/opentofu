@@ -51,6 +51,11 @@ jobs:
           git fetch --depth=1 origin "${GITHUB_SHA}"
           git checkout FETCH_HEAD
 
+      - name: DHI Login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login dhi.io --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
       - name: Build (amd64)
         run: docker build -t "${{ env.IMAGE }}:test" .
 
@@ -96,6 +101,11 @@ jobs:
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" \
             | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: DHI Login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login dhi.io --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build & Push (multi-arch)
         run: |
