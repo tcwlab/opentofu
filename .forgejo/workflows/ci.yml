@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# chameleon-ci / opentofu — Build & Publish
+#
+# Kein einziger Inline-Download. Alle Tools sind in spezialisierten,
+# versionierten Images vorinstalliert:
+#   tcwlab/buildx:0.19.3  → docker build / buildx (amd64 + arm64)
+#
+# Checkout: Shell-basiert (git init + git fetch) — kein Node.js nötig.
+# Docker-Daemon: Direkt über tcp://docker-in-docker:2375 (runner-net).
+#
+# Versionierung: Tag = OpenTofu-Version (z.B. v1.10.0)
+#   → tcwlab/opentofu:1.10.0 + tcwlab/opentofu:latest
+# ─────────────────────────────────────────────────────────────────────────────
+
 name: ci
 
 on:
@@ -14,6 +28,7 @@ concurrency:
 
 env:
   IMAGE: tcwlab/opentofu
+  DOCKER_BUILDKIT: "1"
 
 jobs:
 
@@ -22,25 +37,26 @@ jobs:
     name: Build & Smoke-Test (amd64)
     runs-on: ubuntu-22.04
     container:
-      image: docker:27-cli
-    services:
-      dind:
-        image: docker:27-dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: "--privileged"
+      image: tcwlab/buildx:0.19.3
     env:
-      DOCKER_HOST: tcp://dind:2375
+      DOCKER_HOST: tcp://docker-in-docker:2375
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          git remote add origin \
+            "http://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout FETCH_HEAD
+
       - name: Build (amd64)
         run: docker build -t "${{ env.IMAGE }}:test" .
+
       - name: Smoke-Test
         run: docker run --rm "${{ env.IMAGE }}:test" version
 
-  # ---------------------------------------------------------------------------
-  # Publish nur auf Git-Tag (v<tool-version>, z.B. v1.10.0).
-  # Tag = Tool-Version → tcwlab/opentofu:1.10.0 + tcwlab/opentofu:latest
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to Docker Hub (linux/amd64 + linux/arm64)
@@ -48,17 +64,19 @@ jobs:
     needs: [build-test]
     if: startsWith(github.ref, 'refs/tags/v')
     container:
-      image: docker:27-cli
-    services:
-      dind:
-        image: docker:27-dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: "--privileged"
+      image: tcwlab/buildx:0.19.3
     env:
-      DOCKER_HOST: tcp://dind:2375
+      DOCKER_HOST: tcp://docker-in-docker:2375
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          git remote add origin \
+            "http://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout FETCH_HEAD
 
       - name: Extract tool version from tag
         id: version
@@ -66,20 +84,8 @@ jobs:
           VER="${GITHUB_REF#refs/tags/v}"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
-      - name: Install buildx
-        run: |
-          docker buildx version || \
-            (apk add --no-cache curl && \
-             mkdir -p ~/.docker/cli-plugins && \
-             curl -fsSL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
-               -o ~/.docker/cli-plugins/docker-buildx && \
-             chmod +x ~/.docker/cli-plugins/docker-buildx)
-          docker buildx version
-
       - name: Set up QEMU (arm64 emulation)
-        run: |
-          docker run --rm --privileged \
-            multiarch/qemu-user-static --reset -p yes
+        run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Set up Buildx builder
         run: |
@@ -96,6 +102,8 @@ jobs:
           VER="${{ steps.version.outputs.version }}"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
+            --sbom=true \
+            --provenance=mode=max \
             --build-arg TOFU_VERSION="${VER}" \
             -t "${{ env.IMAGE }}:latest" \
             -t "${{ env.IMAGE }}:${VER}" \
