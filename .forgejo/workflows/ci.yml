@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: tcwlab/opentofu
+  DEFAULT_TOFU_VERSION: "1.10.0"
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  build-test:
+    name: Build & Smoke-Test (amd64)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER="${{ env.DEFAULT_TOFU_VERSION }}"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+      - name: Build (amd64)
+        run: |
+          docker build \
+            --build-arg TOFU_VERSION="${{ steps.version.outputs.version }}" \
+            -t "${{ env.IMAGE }}:test" .
+      - name: Smoke-Test
+        run: docker run --rm "${{ env.IMAGE }}:test" version
+
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to Docker Hub (linux/amd64 + linux/arm64)
+    runs-on: ubuntu-22.04
+    needs: [build-test]
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            VER="${{ env.DEFAULT_TOFU_VERSION }}"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (arm64 emulation)
+        run: |
+          docker run --rm --privileged \
+            multiarch/qemu-user-static --reset -p yes
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --name multiarch --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+      - name: Docker Hub Login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build & Push (multi-arch)
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg TOFU_VERSION="${VER}" \
+            -t "${{ env.IMAGE }}:latest" \
+            -t "${{ env.IMAGE }}:${VER}" \
+            --push \
+            .
