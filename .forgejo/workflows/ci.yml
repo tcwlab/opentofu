@@ -14,7 +14,6 @@ concurrency:
 
 env:
   IMAGE: tcwlab/opentofu
-  DEFAULT_TOFU_VERSION: "1.10.0"
 
 jobs:
 
@@ -22,52 +21,67 @@ jobs:
   build-test:
     name: Build & Smoke-Test (amd64)
     runs-on: ubuntu-22.04
+    container:
+      image: docker:27-cli
+    services:
+      dind:
+        image: docker:27-dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        options: "--privileged"
+    env:
+      DOCKER_HOST: tcp://dind:2375
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
-      - name: Extract version
-        id: version
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VER="${GITHUB_REF#refs/tags/v}"
-          else
-            VER="${{ env.DEFAULT_TOFU_VERSION }}"
-          fi
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
       - name: Build (amd64)
-        run: |
-          docker build \
-            --build-arg TOFU_VERSION="${{ steps.version.outputs.version }}" \
-            -t "${{ env.IMAGE }}:test" .
+        run: docker build -t "${{ env.IMAGE }}:test" .
       - name: Smoke-Test
         run: docker run --rm "${{ env.IMAGE }}:test" version
 
+  # ---------------------------------------------------------------------------
+  # Publish nur auf Git-Tag (v<tool-version>, z.B. v1.10.0).
+  # Tag = Tool-Version → tcwlab/opentofu:1.10.0 + tcwlab/opentofu:latest
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to Docker Hub (linux/amd64 + linux/arm64)
     runs-on: ubuntu-22.04
     needs: [build-test]
-    if: github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v')
+    container:
+      image: docker:27-cli
+    services:
+      dind:
+        image: docker:27-dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        options: "--privileged"
+    env:
+      DOCKER_HOST: tcp://dind:2375
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
 
-      - name: Extract version
+      - name: Extract tool version from tag
         id: version
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VER="${GITHUB_REF#refs/tags/v}"
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-          else
-            VER="${{ env.DEFAULT_TOFU_VERSION }}"
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          fi
+          VER="${GITHUB_REF#refs/tags/v}"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Install buildx
+        run: |
+          docker buildx version || \
+            (apk add --no-cache curl && \
+             mkdir -p ~/.docker/cli-plugins && \
+             curl -fsSL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
+               -o ~/.docker/cli-plugins/docker-buildx && \
+             chmod +x ~/.docker/cli-plugins/docker-buildx)
+          docker buildx version
 
       - name: Set up QEMU (arm64 emulation)
         run: |
           docker run --rm --privileged \
             multiarch/qemu-user-static --reset -p yes
 
-      - name: Set up Docker Buildx
+      - name: Set up Buildx builder
         run: |
           docker buildx create --name multiarch --driver docker-container --use
           docker buildx inspect --bootstrap
