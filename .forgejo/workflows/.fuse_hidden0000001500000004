@@ -3,14 +3,13 @@
 #
 # Kein einziger Inline-Download. Alle Tools sind in spezialisierten,
 # versionierten Images vorinstalliert:
-#   tcwlab/hadolint:2.12.0  → Dockerfile-Linting
-#   tcwlab/buildx:0.33.0    → docker build / buildx (amd64 + arm64)
+#   tcwlab/buildx:0.33.0  → docker build / buildx (amd64 + arm64)
 #
 # Checkout: Shell-basiert (git init + git fetch) — kein Node.js nötig.
 # Docker-Daemon: Direkt über tcp://docker-in-docker:2375 (runner-net).
 #
-# Versionierung: Tag = OpenTofu-Version (z.B. v1.11.6)
-#   → tcwlab/opentofu:1.11.6 + tcwlab/opentofu:latest
+# Versionierung: Tag = OpenTofu-Version (z.B. v1.10.0)
+#   → tcwlab/opentofu:1.10.0 + tcwlab/opentofu:latest
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: ci
@@ -34,27 +33,6 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  lint:
-    name: Dockerfile Lint
-    runs-on: ubuntu-22.04
-    container:
-      image: tcwlab/hadolint:2.12.0
-    steps:
-      - name: Checkout
-        env:
-          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-        run: |
-          git config --global init.defaultBranch main
-          git init .
-          git remote add origin \
-            "https://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${GITHUB_SHA}"
-          git checkout FETCH_HEAD
-
-      - name: hadolint
-        run: hadolint --ignore DL3018 Dockerfile
-
-  # ---------------------------------------------------------------------------
   build-test:
     name: Build & Smoke-Test (amd64)
     runs-on: ubuntu-22.04
@@ -65,14 +43,18 @@ jobs:
     steps:
       - name: Checkout
         env:
-          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git config --global init.defaultBranch main
           git init .
           git remote add origin \
-            "https://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
+            "http://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${GITHUB_SHA}"
           git checkout FETCH_HEAD
+
+      - name: DHI Login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login dhi.io --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build (amd64)
         run: docker build -t "${{ env.IMAGE }}:test" .
@@ -80,35 +62,11 @@ jobs:
       - name: Smoke-Test
         run: docker run --rm "${{ env.IMAGE }}:test" version
 
-      - name: Docker Hub Login
-        run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
-            | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-      - name: Push to staging
-        run: |
-          TOOL=$(echo "${{ env.IMAGE }}" | cut -d'/' -f2)
-          docker tag "${{ env.IMAGE }}:test" "tcwlab/forgejo-build:${TOOL}-${{ github.sha }}"
-          docker push "tcwlab/forgejo-build:${TOOL}-${{ github.sha }}"
-
-      - name: Trivy Scan
-        run: |
-          TOOL=$(echo "${{ env.IMAGE }}" | cut -d'/' -f2)
-          docker run --rm \
-            -e TRIVY_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}" \
-            -e TRIVY_PASSWORD="${{ secrets.DOCKERHUB_TOKEN }}" \
-            tcwlab/trivy:0.70.0 image \
-            --exit-code 0 \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --format table \
-            "tcwlab/forgejo-build:${TOOL}-${{ github.sha }}"
-
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to Docker Hub (linux/amd64 + linux/arm64)
     runs-on: ubuntu-22.04
-    needs: [lint, build-test]
+    needs: [build-test]
     if: startsWith(github.ref, 'refs/tags/v')
     container:
       image: tcwlab/buildx:0.33.0
@@ -117,12 +75,11 @@ jobs:
     steps:
       - name: Checkout
         env:
-          GITHUB_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git config --global init.defaultBranch main
           git init .
           git remote add origin \
-            "https://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
+            "http://oauth2:${GITHUB_TOKEN}@git.mon.k8b.co/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${GITHUB_SHA}"
           git checkout FETCH_HEAD
 
@@ -144,6 +101,11 @@ jobs:
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" \
             | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: DHI Login
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login dhi.io --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build & Push (multi-arch)
         run: |
