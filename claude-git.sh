@@ -194,6 +194,208 @@ current_branch() {
     git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""
 }
 
+# Prüft, ob ein Branch-Switch zum Ziel-Branch das Working-Directory
+# clobbern würde. Antwort:
+#   0  → switch ist sicher (clean tree, oder dirty aber kein Konflikt,
+#        oder target existiert noch nicht und wird neu erstellt)
+#   1  → switch würde lokale Änderungen verlieren (printet auch eine
+#        klare Fehlermeldung nach stderr)
+#
+# Damit umgehen wir den heute zweimal aufgetretenen Branch-Drift, bei
+# dem ein gescheiterter `git checkout main` als bloßer Hinweis durchging
+# und der Wrapper dann munter auf dem alten claude/<X>-Branch
+# weitercommittete (siehe Memory: feedback_git_wrapper_…).
+check_clean_worktree_for_switch() {
+    local target="$1"
+    local repo="$REPO_ROOT"
+
+    # Schon auf dem Ziel? Nichts zu tun.
+    local current
+    current="$(current_branch)"
+    if [ "$current" = "$target" ]; then
+        return 0
+    fi
+
+    # Working Tree clean? Dann ist jeder Switch sicher.
+    if [ -z "$(git -C "$repo" status --porcelain 2>/dev/null)" ]; then
+        return 0
+    fi
+
+    # Dirty. Prüfen, ob der Switch tatsächlich Konflikte erzeugt.
+    # Wenn das Ziel weder lokal noch remote existiert, wird `git
+    # checkout -b $target` daraus einen NEUEN Branch erstellen, der vom
+    # aktuellen HEAD abzweigt — das verliert keine Änderungen.
+    local target_ref=""
+    if git -C "$repo" rev-parse --verify --quiet "$target" >/dev/null 2>&1; then
+        target_ref="$target"
+    elif git -C "$repo" rev-parse --verify --quiet "origin/$target" >/dev/null 2>&1; then
+        target_ref="origin/$target"
+    else
+        # Branch existiert nicht → wird neu von HEAD aus erzeugt → safe.
+        return 0
+    fi
+
+    # Dirty Files (modified + staged) — die machen Probleme, wenn ihr
+    # Inhalt sich zwischen HEAD und target unterscheidet.
+    local dirty_modified
+    dirty_modified="$(
+        {
+            git -C "$repo" diff --name-only 2>/dev/null
+            git -C "$repo" diff --cached --name-only 2>/dev/null
+        } | sed '/^$/d' | sort -u
+    )"
+
+    # Files, die sich zwischen HEAD und Ziel unterscheiden.
+    local switch_changed
+    switch_changed="$(git -C "$repo" diff --name-only HEAD "$target_ref" 2>/dev/null | sed '/^$/d' | sort -u)"
+
+    # Untracked Files — die machen nur Probleme, wenn das Ziel dort
+    # einen tracked File mit gleichem Pfad hat.
+    local dirty_untracked
+    dirty_untracked="$(git -C "$repo" ls-files --others --exclude-standard 2>/dev/null | sed '/^$/d' | sort -u)"
+
+    local target_tracked
+    target_tracked="$(git -C "$repo" ls-tree -r --name-only "$target_ref" 2>/dev/null | sed '/^$/d' | sort -u)"
+
+    # Schnittmengen-Check via comm.
+    local conflicts_modified conflicts_untracked
+    conflicts_modified="$(comm -12 <(printf '%s\n' "$dirty_modified") <(printf '%s\n' "$switch_changed") 2>/dev/null)"
+    conflicts_untracked="$(comm -12 <(printf '%s\n' "$dirty_untracked") <(printf '%s\n' "$target_tracked") 2>/dev/null)"
+
+    if [ -z "$conflicts_modified" ] && [ -z "$conflicts_untracked" ]; then
+        # Dirty, aber kein Konflikt — git checkout würde durchgehen
+        # (die Änderungen wandern mit auf den Ziel-Branch).
+        return 0
+    fi
+
+    # Konflikt-Fall.
+    {
+        echo "❌ '$DISPLAY': Branch-Switch '$current' → '$target' würde lokale Änderungen verlieren."
+        if [ -n "$conflicts_modified" ]; then
+            echo ""
+            echo "   Geänderte Dateien, die zwischen den Branches kollidieren:"
+            printf '%s\n' "$conflicts_modified" | sed 's/^/      /'
+        fi
+        if [ -n "$conflicts_untracked" ]; then
+            echo ""
+            echo "   Untracked Dateien, die das Ziel überschreiben würde:"
+            printf '%s\n' "$conflicts_untracked" | sed 's/^/      /'
+        fi
+        echo ""
+        echo "   Optionen:"
+        echo "      a) Erst auf '$current' fertig committen, dann nochmal:"
+        echo "         ./claude-git.sh commit \"<conventional-msg>\""
+        echo "         ./claude-git.sh branch $target"
+        echo ""
+        echo "      b) Stash + Switch + Pop manuell:"
+        echo "         git -C \"$REPO_ROOT\" stash push --include-untracked -m 'before-switch'"
+        echo "         ./claude-git.sh branch $target"
+        echo "         git -C \"$REPO_ROOT\" stash pop"
+        echo ""
+        echo "      c) Wrapper-Auto-Stash (Side-Effect: legt einen Stash-Eintrag an):"
+        echo "         ./claude-git.sh branch --auto-stash $target"
+    } >&2
+    return 1
+}
+
+# Prüft den aktuellen Branch vor einem Commit. Wenn auf einem stale
+# claude/<X>-Branch (in main bereits gemergt oder origin-seitig
+# gelöscht), abbrechen mit Exit !=0 — es sei denn, der Aufrufer hat
+# explizit --force gesetzt.
+#
+# Heuristik nutzt `git cherry main claude/X` (patch-id-Equivalenz, also
+# Squash-Merges werden erkannt) plus `git rev-list --count claude/X..main`
+# als „main-ist-weiter"-Indiz.
+assert_branch_for_commit() {
+    local force="${1:-0}"
+    local branch
+    branch="$(current_branch)"
+
+    # main/master werden vom Auto-Branching in cmd_commit selbst behandelt.
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ] || [ -z "$branch" ]; then
+        return 0
+    fi
+
+    # Nur claude/*-Branches werden geprüft. Custom-Branches (feature/…,
+    # dev, …) sind User-managed — Wrapper hält sich da raus.
+    case "$branch" in
+        claude/*) ;;
+        *) return 0 ;;
+    esac
+
+    if [ "$force" = "1" ]; then
+        echo "⚠️  '$DISPLAY': --force gesetzt, Stale-Check für '$branch' übersprungen." >&2
+        return 0
+    fi
+
+    local main_ref=""
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "main" >/dev/null 2>&1; then
+        main_ref="main"
+    elif git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/main" >/dev/null 2>&1; then
+        main_ref="origin/main"
+    elif git -C "$REPO_ROOT" rev-parse --verify --quiet "master" >/dev/null 2>&1; then
+        main_ref="master"
+    elif git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/master" >/dev/null 2>&1; then
+        main_ref="origin/master"
+    fi
+
+    local origin_has_branch=0
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$branch" >/dev/null 2>&1; then
+        origin_has_branch=1
+    fi
+
+    local is_stale=0
+    local stale_reason=""
+
+    if [ -n "$main_ref" ]; then
+        # Squash-Merge-Erkennung via patch-id: `git cherry <main> <branch>`
+        # listet Commits aus <branch>, die noch NICHT in <main> stecken
+        # (mit '+ <sha>'); die restlichen Zeilen sind '- <sha>' = bereits
+        # via patch-id-Equivalenz in main enthalten (also auch
+        # Squash-Merges werden erkannt).
+        local unmerged_count
+        unmerged_count="$(git -C "$REPO_ROOT" cherry "$main_ref" "$branch" 2>/dev/null | grep -c '^+' || true)"
+
+        # Ist main weiter als der Branch?
+        local ahead_main
+        ahead_main="$(git -C "$REPO_ROOT" rev-list --count "$branch..$main_ref" 2>/dev/null || echo 0)"
+
+        if [ "${unmerged_count:-0}" = "0" ] && [ "${ahead_main:-0}" -gt 0 ]; then
+            is_stale=1
+            if [ "$origin_has_branch" -eq 0 ]; then
+                stale_reason="origin/$branch existiert nicht mehr UND alle Commits von '$branch' sind bereits in '$main_ref' (vermutlich nach Squash-Merge gelöscht)"
+            else
+                stale_reason="'$main_ref' enthält bereits alle Patches von '$branch' (vermutlich gesquasht-mergt)"
+            fi
+        elif [ "$origin_has_branch" -eq 0 ] && [ "${ahead_main:-0}" -gt 0 ] && [ "${unmerged_count:-0}" -gt 0 ]; then
+            # Branch-Lokal-Only mit eigenen Commits, aber main ist
+            # weitergegangen. Kein klares Squash-Indiz, aber auch nicht
+            # offensichtlich aktiv. Heuristik unklar → abort mit Hinweis.
+            is_stale=1
+            stale_reason="origin/$branch existiert nicht (nie gepusht?) UND '$main_ref' ist weiter — unklar, ob noch aktiv"
+        fi
+    fi
+
+    if [ "$is_stale" -eq 1 ]; then
+        {
+            echo "❌ '$DISPLAY': Aktueller Branch '$branch' wirkt STALE — Commit abgebrochen."
+            echo ""
+            echo "   Indiz: $stale_reason."
+            echo ""
+            echo "   Vermutlich willst du nicht hier committen, sondern erst neu branchen:"
+            echo "      ./claude-git.sh branch main"
+            echo "      ./claude-git.sh commit \"<conventional-msg>\"   # erzeugt neuen claude/<slug>"
+            echo ""
+            echo "   Wenn du wirklich auf '$branch' committen willst:"
+            echo "      ./claude-git.sh commit --force \"<conventional-msg>\""
+        } >&2
+        return 1
+    fi
+
+    return 0
+}
+
+
 count_unstaged() {
     git -C "$REPO_ROOT" diff --name-only 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' '
 }
@@ -230,21 +432,25 @@ VERWENDUNG:
    ./claude-git.sh <command> [args...]
 
 COMMANDS:
-   status [--porcelain]    Branch + Dirty-State + unpushed Commits.
-                           --porcelain liefert tab-separierte Werte
-                           für die Orchestrator-Schichten.
-   pull                    git pull --rebase auf dem aktuellen Branch.
-   branch <name>           Wechselt/erstellt Branch <name>.
-   commit "<message>"      Conventional-Commit. Auto-Branching auf
-                           claude/<slug> wenn aktuell main oder master.
-                           Validiert das Format strikt.
-   push                    git push -u origin <current-branch>.
-   merge <branch>          Wechselt auf main, macht 'git merge --squash <branch>'.
-                           Sascha committet und pusht selbst.
-   cleanup                 Räumt stale .git/*.lock-Files auf und meldet,
-                           was entfernt wurde. Wird vor jeder anderen
-                           Operation ohnehin automatisch ausgeführt.
-   help                    Diese Hilfe.
+   status [--porcelain]            Branch + Dirty-State + unpushed Commits.
+                                   --porcelain liefert tab-separierte Werte
+                                   für die Orchestrator-Schichten.
+   pull                            git pull --rebase auf dem aktuellen Branch.
+   branch [--auto-stash] <name>    Wechselt/erstellt Branch <name>.
+                                   Bricht ab, wenn dirty Working Tree den Switch
+                                   clobbern würde. --auto-stash = stash + switch + pop.
+   commit [--force] "<message>"    Conventional-Commit. Auto-Branching auf
+                                   claude/<slug> wenn aktuell main oder master.
+                                   Bricht ab, wenn aktueller Branch stale ist
+                                   (claude/<X> bereits in main gemergt oder
+                                   origin-seitig gelöscht). --force = übergehen.
+   push                            git push -u origin <current-branch>.
+   merge <branch>                  Wechselt auf main, macht 'git merge --squash <branch>'.
+                                   Sascha committet und pusht selbst.
+   cleanup                         Räumt stale .git/*.lock-Files auf und meldet,
+                                   was entfernt wurde. Wird vor jeder anderen
+                                   Operation ohnehin automatisch ausgeführt.
+   help                            Diese Hilfe.
 
 LOCK-CLEANUP:
    Vor jeder Git-Operation räumt der Wrapper stale .git/*.lock-Files
@@ -261,6 +467,20 @@ BRANCH-WORKFLOW:
    Claude committet niemals direkt auf main/master. Statt dessen wird
    automatisch ein Branch claude/<slug> erstellt (Slug aus der Beschreibung,
    z.B. 'docs: rewrite arc42 in prose style' → 'claude/rewrite-arc42-in-prose-style').
+
+BRANCH-DRIFT-SCHUTZ:
+   1. branch <name>: Vor dem Switch wird geprüft, ob der Switch lokale
+      Änderungen verlieren würde (modified vs. switch-changed,
+      untracked vs. target-tracked). Konflikt → Abbruch mit klarer
+      Fehlermeldung. Mit --auto-stash erledigt der Wrapper stash/switch/pop.
+   2. commit "<msg>": Vor dem Commit wird der aktuelle Branch geprüft.
+      Wenn er ein claude/<X> ist und entweder origin ihn nicht mehr hat
+      oder main bereits weiter ist (Squash-Merge-Indikator), wird der
+      Commit abgebrochen mit Hinweis "erst neu branchen". --force
+      übergeht den Check.
+   Beide Checks verhindern den Branch-Drift, bei dem ein gescheiterter
+   git checkout main als bloßer Hinweis durchging und nachfolgende
+   Commits stillschweigend auf einem alten claude/<X>-Branch landeten.
 
 VERTICAL-REPO-MODELL:
    Jedes Vertical (idp, platform, gateway, …) ist ein eigenständiges
@@ -336,24 +556,86 @@ cmd_pull() {
 cmd_branch() {
     require_git_repo
     cleanup_stale_locks "$REPO_ROOT"
-    local name="${1:-}"
+
+    local auto_stash=0
+    local name=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --auto-stash) auto_stash=1; shift ;;
+            --) shift; name="${1:-}"; shift || true; break ;;
+            -*) echo "Fehler: unbekanntes Flag '$1'." >&2; return 2 ;;
+            *)  name="$1"; shift ;;
+        esac
+    done
+
     if [ -z "$name" ]; then
         echo "Fehler: branch benötigt einen Namen." >&2
         return 2
     fi
+
+    # Working-Tree-Schutz: würde der Switch lokale Änderungen verlieren?
+    if ! check_clean_worktree_for_switch "$name"; then
+        if [ "$auto_stash" -eq 1 ]; then
+            echo "ℹ️  '$DISPLAY': --auto-stash gesetzt — stash + switch + pop." >&2
+            local stash_msg
+            stash_msg="auto-stash-before-branch-$(date +%s)"
+            if ! git -C "$REPO_ROOT" stash push --include-untracked -m "$stash_msg" >/dev/null; then
+                echo "❌ '$DISPLAY': Auto-Stash fehlgeschlagen — Abbruch." >&2
+                return 1
+            fi
+            local checkout_rc=0
+            if git -C "$REPO_ROOT" rev-parse --verify --quiet "$name" >/dev/null 2>&1; then
+                git -C "$REPO_ROOT" checkout "$name" || checkout_rc=$?
+            else
+                git -C "$REPO_ROOT" checkout -b "$name" || checkout_rc=$?
+            fi
+            if [ "$checkout_rc" -ne 0 ]; then
+                echo "❌ '$DISPLAY': Switch fehlgeschlagen, Stash bleibt erhalten — manuell mit 'git stash pop' wiederherstellen." >&2
+                return 1
+            fi
+            if ! git -C "$REPO_ROOT" stash pop >/dev/null; then
+                echo "⚠️  '$DISPLAY': Stash-Pop hatte Konflikte — manuell auflösen." >&2
+                # Konflikt aus Pop ist user-handhabbar, der Switch hat aber geklappt.
+                return 1
+            fi
+            echo "✓ '$DISPLAY': Auf '$name' gewechselt, Auto-Stash wiederhergestellt."
+            return 0
+        fi
+        # Default: kein --auto-stash → wir brechen ab. check_clean_…
+        # hat die Fehlermeldung bereits gedruckt.
+        return 1
+    fi
+
     if git -C "$REPO_ROOT" rev-parse --verify --quiet "$name" >/dev/null 2>&1; then
         echo "↪︎  '$DISPLAY': Wechsle auf bestehenden Branch '$name'."
-        git -C "$REPO_ROOT" checkout "$name"
+        if ! git -C "$REPO_ROOT" checkout "$name"; then
+            echo "❌ '$DISPLAY': Switch auf '$name' fehlgeschlagen — Abbruch." >&2
+            return 1
+        fi
     else
         echo "↪︎  '$DISPLAY': Erstelle neuen Branch '$name'."
-        git -C "$REPO_ROOT" checkout -b "$name"
+        if ! git -C "$REPO_ROOT" checkout -b "$name"; then
+            echo "❌ '$DISPLAY': Erstellen von '$name' fehlgeschlagen — Abbruch." >&2
+            return 1
+        fi
     fi
 }
 
 cmd_commit() {
     require_git_repo
     cleanup_stale_locks "$REPO_ROOT"
-    local msg="${1:-}"
+
+    local force=0
+    local msg=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force|-f) force=1; shift ;;
+            --) shift; msg="${1:-}"; shift || true; break ;;
+            -*) echo "Fehler: unbekanntes Flag '$1'." >&2; return 2 ;;
+            *)  msg="$1"; shift ;;
+        esac
+    done
+
     if [ -z "$msg" ]; then
         echo "Fehler: commit benötigt eine Message in Anführungszeichen." >&2
         return 2
@@ -367,6 +649,13 @@ cmd_commit() {
     if [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
         echo "ℹ️  '$DISPLAY': Keine Änderungen — übersprungen."
         return 0
+    fi
+
+    # Branch-Drift-Schutz: niemals stillschweigend auf einem stale
+    # claude/<X>-Branch committen. assert_branch_for_commit gibt die
+    # Fehlermeldung selbst aus, wir brechen nur ab.
+    if ! assert_branch_for_commit "$force"; then
+        return 1
     fi
 
     local branch
@@ -388,10 +677,16 @@ cmd_commit() {
 
             if git -C "$REPO_ROOT" rev-parse --verify --quiet "$target" >/dev/null 2>&1; then
                 echo "↪︎  '$DISPLAY': '$branch' ist geschützt — wechsle auf bestehenden '$target'."
-                git -C "$REPO_ROOT" checkout "$target"
+                if ! git -C "$REPO_ROOT" checkout "$target"; then
+                    echo "❌ '$DISPLAY': Switch auf '$target' fehlgeschlagen — Commit abgebrochen." >&2
+                    return 1
+                fi
             else
                 echo "↪︎  '$DISPLAY': '$branch' ist geschützt — erstelle und wechsle auf '$target'."
-                git -C "$REPO_ROOT" checkout -b "$target"
+                if ! git -C "$REPO_ROOT" checkout -b "$target"; then
+                    echo "❌ '$DISPLAY': Erstellen von '$target' fehlgeschlagen — Commit abgebrochen." >&2
+                    return 1
+                fi
             fi
         else
             echo "ℹ️  '$DISPLAY': Erster Commit — direkt auf '$branch' (kein Auto-Branching)."
