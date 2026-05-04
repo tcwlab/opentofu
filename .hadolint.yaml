@@ -1,8 +1,8 @@
-# hadolint-Konfiguration für tcwlab/opentofu
+# hadolint configuration for tcwlab/opentofu
 #
 # DL3018: Pin versions in apk add
-# Alpine-Images pinnen bewusst keine apk-Paketversionen, da sie das
-# Alpine-Repository als Source-of-Truth verwenden und nur mit apk upgrade
-# aktualisiert werden. Version-Pinning würde bei Alpine-Releases brechen.
+# Alpine images intentionally do not pin apk package versions because
+# they use the Alpine repository as source-of-truth and update only via
+# apk upgrade. Version pinning would break across Alpine releases.
 ignore:
   - DL3018

@@ -1,80 +1,80 @@
-# opentofu — Repo-Kontext
+# opentofu — Repo context
 
-> **Onboarding-Handshake:** Lies in dieser Reihenfolge:
-> 1. [`Projects/CLAUDE.md`](https://git.mon.k8b.co/) (globale Standards)
-> 2. [`tcwlab/CLAUDE.md`](https://git.mon.k8b.co/tcwlab/) (Toolchain-Kontext)
-> 3. Diese Datei (opentofu-spezifisches)
-
----
-
-## Was ist `opentofu`?
-
-`opentofu` ist das Container-Image-Wrapper-Repo, das in der tcwlab-Toolchain die OpenTofu-CLI in einer gepinnten Version bereitstellt. Konsumenten verwenden das Image als `container:` in Forgejo-Workflows, wenn sie IaC-Code validieren, formatieren oder planen wollen — typischerweise im `iac-ci.yml`-Template.
-
-Das Image ist bewusst minimal (Alpine 3.23, ein Tofu-Binary, ein paar Helper-Pakete für Checkout im Container-Job). Es ist kein generisches IaC-Image (kein Terragrunt, kein OpenTofu-Provider-Cache) — wenn solche Layer gebraucht werden, baut sich das Konsumenten-Repo ein eigenes Layer auf Basis von `tcwlab/opentofu`.
-
-### Konsumenten
-
-Hauptkonsumenten sind alle Repos mit IaC-Anteil — derzeit `K8Box/provisioning`, `K8Box/infra`, plus jedes Vertical, das eigene OpenTofu-Module hat (z.B. Bucket-Provisioning, DNS-Records, S3-Backup-Buckets). Auch hier konsumiert `tcwlab`-intern: das Image wird für Smoke-Tests im eigenen `ci.yml` verwendet.
+> **Onboarding handshake:** Read in this order:
+> 1. [`Projects/CLAUDE.md`](https://git.mon.k8b.co/) (global standards)
+> 2. [`tcwlab/CLAUDE.md`](https://git.mon.k8b.co/tcwlab/) (toolchain context)
+> 3. This file (opentofu-specific)
 
 ---
 
-## Was ist drin?
+## What is `opentofu`?
 
-Multi-Stage [Dockerfile](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/Dockerfile):
+`opentofu` is the container image wrapper repo that supplies the OpenTofu CLI in a pinned version within the tcwlab toolchain. Consumers use this image as `container:` in Forgejo workflows when they want to validate, format, or plan IaC code — typically via the `iac-ci.yml` template.
 
-- **Stage 1 — `base`**: `alpine:3.23`, `apk add curl unzip git bash ca-certificates`, `apk upgrade`. BUILDPLATFORM-aware für Multi-Arch.
-- **Stage 2 — `dependencies`**: arch-detect (`aarch64` → `arm64`, `x86_64` → `amd64`), Download des OpenTofu-Release-Zips von GitHub, Unzip nach `/usr/local/bin/tofu`, `tofu version`-Smoke-Test.
-- **Stage 3 — `release`**: leeres Alpine-Base mit OCI-Labels, kopiert nur das `tofu`-Binary aus Stage 2 ein. Non-root user `tofuusr`. Workdir `/workspace`. ENTRYPOINT `tofu`.
+The image is intentionally minimal (Alpine 3.23, one tofu binary, a few helper packages for container job checkout). It is not a generic IaC image (no Terragrunt, no OpenTofu provider cache) — if those layers are needed, consumer repos build their own layer on top of `tcwlab/opentofu`.
 
-Plattformen: `linux/amd64`, `linux/arm64`. Buildx multi-arch.
+### Consumers
 
----
-
-## Tool-Versionen und Pinning-Strategie
-
-Das Image-Tag ist 1:1 mit der OpenTofu-Version: `tcwlab/opentofu:1.11.6` enthält OpenTofu 1.11.6.
-
-### Update-Disziplin
-
-Bei jedem OpenTofu-Release:
-
-1. PR auf `claude/bump-tofu-<version>`: `ARG TOFU_VERSION=<x.y.z>` ändern (zwei Stellen: `dependencies` + `release`).
-2. CI baut, smoke-tested (`tofu version` in der Pipeline).
-3. semantic-release tagged `v<version>` und pusht `tcwlab/opentofu:<x.y.z>` plus `tcwlab/opentofu:latest`.
-4. [`tcwlab/versions.yaml`](https://git.mon.k8b.co/tcwlab/) im Top-Level-Workspace aktualisieren.
-5. Konsumenten-Repos können dann ihre `OPENTOFU_VERSION`-Werte in `.forgejo/workflows/ci.yml` hochziehen — kontrolliert, per PR.
-
-OpenTofu-Major-Releases (z.B. 1.x → 2.x) erfordern **immer** koordinierte Konsumenten-Migration plus Sammeln von Provider-Kompatibilitäts-Notes. Im tcwlab-Workspace eine ADR-light-Notiz dazu in der Commit-Message hinterlassen.
+Primary consumers are all repos with IaC content — currently `K8Box/provisioning`, `K8Box/infra`, plus any vertical with its own OpenTofu modules (e.g., bucket provisioning, DNS records, S3 backup buckets). tcwlab consumes this internally too: the image is used for smoke tests in its own `ci.yml`.
 
 ---
 
-## Release-Verfahren
+## What's inside?
 
-Konfiguriert wie alle anderen Image-Repos: [`semantic-release`](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/.releaserc) mit Forgejo-Plugin (`@saithodev/semantic-release-gitea`), Auto-Tag, Auto-Release. Pipeline-Pattern aus [`templates/docker-image-ci.yml`](https://git.mon.k8b.co/tcwlab/templates) übernommen: Lint → Build-Test → Trivy-Scan → Auto-Tag + Publish nach `tcwlab/opentofu:<x.y.z>`.
+Multi-stage [Dockerfile](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/Dockerfile):
 
----
+- **Stage 1 — `base`**: `alpine:3.23`, `apk add curl unzip git bash ca-certificates`, `apk upgrade`. BUILDPLATFORM-aware for multi-arch.
+- **Stage 2 — `dependencies`**: arch-detect (`aarch64` → `arm64`, `x86_64` → `amd64`), download OpenTofu release zip from GitHub, unzip to `/usr/local/bin/tofu`, `tofu version` smoke test.
+- **Stage 3 — `release`**: lean Alpine base with OCI labels, copies only the `tofu` binary from stage 2. Non-root user `tofuusr`. Workdir `/workspace`. ENTRYPOINT `tofu`.
 
-## Was bei Versions-Bump zu tun ist
-
-1. PR mit `ARG TOFU_VERSION` umstellen (zwei Stellen!).
-2. CI durchlaufen lassen — Trivy-Scan muss grün sein, Smoke-Test muss `tofu version` ausgeben.
-3. Bei Bedarf: Konsumenten-Repos ankündigen (z.B. K8Box-Slack), wenn der Bump Provider-Kompatibilität betrifft.
-4. Nach Merge: `versions.yaml` auf Top-Level pflegen.
+Platforms: `linux/amd64`, `linux/arm64`. Buildx multi-arch.
 
 ---
 
-## Was explizit NICHT in dieses Image gehört
+## Tool versions and pinning strategy
 
-- **Provider-Cache** (kein vorgewärmter `~/.terraform.d/`). Provider werden zur Laufzeit im Konsumenten-Repo geholt. Für Air-Gapped-Setups: dediziertes Konsumenten-Image auf Basis von `tcwlab/opentofu`.
-- **Terragrunt**, **OpenTofu-Wrapper-Skripte**, **Atlantis-Hooks**. `tcwlab/opentofu` ist die nackte Tofu-CLI, nichts mehr.
-- **Cloud-Provider-CLIs** (aws, gcloud, az, hcloud). Wenn ein Konsument das braucht, baut er ein Layer-Image.
-- **kubectl, helm**. Diese gehören entweder zu K8Box-internen Build-Images oder zu einem dedizierten tcwlab-`k8s`-Image (siehe `legacy/k8s/` für die Vergangenheits-Referenz, aber aktiv ist sowas derzeit nicht).
-- **Editor / Shell-Helper**. Image bleibt minimal — kein vim, kein bash-completion, keine Profile.
+The image tag is 1:1 with the OpenTofu version: `tcwlab/opentofu:1.11.6` contains exactly OpenTofu 1.11.6.
+
+### Update discipline
+
+For each OpenTofu release:
+
+1. PR on `claude/bump-tofu-<version>`: change `ARG TOFU_VERSION=<x.y.z>` (two locations: `dependencies` + `release`).
+2. CI builds and smoke-tests (`tofu version` in the pipeline).
+3. semantic-release tags `v<version>` and pushes `tcwlab/opentofu:<x.y.z>` plus `tcwlab/opentofu:latest`.
+4. Update [`tcwlab/versions.yaml`](https://git.mon.k8b.co/tcwlab/) at the workspace top level.
+5. Consumer repos can then bump their `OPENTOFU_VERSION` values in `.forgejo/workflows/ci.yml` — controlled, via PR.
+
+OpenTofu major releases (e.g., 1.x → 2.x) **always** require coordinated consumer migration plus collection of provider-compatibility notes. Leave an ADR-light note in the commit message in the tcwlab workspace.
 
 ---
 
-## Konsumenten-Snippets
+## Release procedure
+
+Configured like all other image repos: [`semantic-release`](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/.releaserc) with Forgejo plugin (`@saithodev/semantic-release-gitea`), auto-tag, auto-release. Pipeline pattern from [`templates/docker-image-ci.yml`](https://git.mon.k8b.co/tcwlab/templates): Lint → Build-Test → Trivy-Scan → Auto-Tag + Publish to `tcwlab/opentofu:<x.y.z>`.
+
+---
+
+## What to do on version bump
+
+1. PR to change `ARG TOFU_VERSION` (two locations!).
+2. Let CI run — Trivy scan must be green, smoke test must output `tofu version`.
+3. If needed: announce to consumer repos (e.g., K8Box Slack) if the bump affects provider compatibility.
+4. After merge: maintain `versions.yaml` at the top level.
+
+---
+
+## What explicitly does NOT belong in this image
+
+- **Provider cache** (no pre-warmed `~/.terraform.d/`). Providers are fetched at runtime in the consumer repo. For air-gapped setups: build a dedicated consumer image on top of `tcwlab/opentofu`.
+- **Terragrunt**, **OpenTofu wrapper scripts**, **Atlantis hooks**. `tcwlab/opentofu` is the bare tofu CLI, nothing more.
+- **Cloud provider CLIs** (aws, gcloud, az, hcloud). If a consumer needs this, they build a layer image.
+- **kubectl, helm**. These belong either in K8Box-internal build images or a dedicated tcwlab `k8s` image (see `legacy/k8s/` for historical reference, but nothing active currently).
+- **Editor / shell helpers**. Image stays minimal — no vim, no bash-completion, no profiles.
+
+---
+
+## Consumer snippets
 
 ### `tofu fmt -check`
 
@@ -103,14 +103,14 @@ tofu-validate:
         find . -name '*.tf' -execdir tofu init -backend=false \; -execdir tofu validate \;
 ```
 
-### Komplett aus `templates/iac-ci.yml`
+### Complete from `templates/iac-ci.yml`
 
-Siehe [`templates/iac-ci.yml`](https://git.mon.k8b.co/tcwlab/templates/src/branch/main/iac-ci.yml). Drop-in nach `.forgejo/workflows/ci.yml` und `OPENTOFU_VERSION` auf den aktuellen Wert aus `versions.yaml` setzen.
+See [`templates/iac-ci.yml`](https://git.mon.k8b.co/tcwlab/templates/src/branch/main/iac-ci.yml). Drop-in to `.forgejo/workflows/ci.yml` and set `OPENTOFU_VERSION` to the current value from `versions.yaml`.
 
 ---
 
-## Bekannte Schmerzpunkte / offene Themen
+## Known pain points / open topics
 
-- **OpenTofu-Versionsdrift mit AWS-/Hetzner-Provider**: Provider-Bumps in Konsumenten-Repos machen manchmal vor einem Tofu-Bump Lock-File-Probleme. Empfehlung: bei OpenTofu-Bump auch eine Sammel-PR-Welle für Konsumenten-Repos planen.
-- **Provider-Plugin-Cache**: Wir cachen aktuell nicht. Bei großen IaC-Repos verlängert das CI-Zeit. Refactoring-Idee: dediziertes `tcwlab/opentofu-with-cache`-Image — aktuell zurückgestellt, weil Konsumenten-Pipelines den Cache lieber via `actions/cache` selbst handhaben.
-- **`tofu init -backend=false`-Trick**: für Validate-Jobs ohne Backend-Zugriff. Funktioniert, aber pro-`init` braucht jedes Modul-Verzeichnis seinen eigenen `init`. In großen IaC-Repos ist das langsam — siehe `templates/iac-ci.yml` für effiziente Implementierung.
+- **OpenTofu version drift with AWS/Hetzner providers**: Provider bumps in consumer repos sometimes cause lock-file issues ahead of a tofu bump. Recommendation: when bumping OpenTofu, plan a coordinated PR wave across consumer repos.
+- **Provider plugin cache**: We don't cache currently. For large IaC repos, this extends CI time. Refactoring idea: dedicated `tcwlab/opentofu-with-cache` image — currently deferred because consumer pipelines prefer to handle caching themselves via `actions/cache`.
+- **`tofu init -backend=false` trick**: for validate jobs without backend access. Works, but each `init` per module directory needs its own invocation. In large IaC repos this is slow — see `templates/iac-ci.yml` for efficient implementation.
