@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # claude-git.sh — Per-Vertical-Git-Wrapper.
 #
-# Remote: ssh://git@git.mon.k8b.co:2222/chameleon-ci/opentofu.git
+# Remote: ssh://git@git.mon.k8b.co:2222/tcwlab/opentofu.git
 #
 # Operiert auf dem .git-Repo dieses einen Verticals (jedes Vertical ist
 # ein eigenes Git-Repo, kein Monorepo). Wird von den höheren Schichten

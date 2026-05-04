@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# chameleon-ci / opentofu — Semantic Release
+# tcwlab / opentofu — Semantic Release
 #
 # Läuft nur auf main. Analysiert Conventional Commits seit dem letzten Tag,
 # erstellt einen Forgejo-Release (mit Changelog) und dispatcht ci.yml für

@@ -51,7 +51,7 @@ LABEL org.opencontainers.image.title="opentofu" \
       org.opencontainers.image.description="opentofu — pinned version for reproducible CI" \
       org.opencontainers.image.vendor="The Chameleon Way" \
       org.opencontainers.image.url="https://hub.docker.com/r/tcwlab/opentofu" \
-      org.opencontainers.image.source="https://git.mon.k8b.co/chameleon-ci/opentofu" \
+      org.opencontainers.image.source="https://git.mon.k8b.co/tcwlab/opentofu" \
       org.opencontainers.image.version="${TOFU_VERSION}"
 
 COPY --from=dependencies /usr/local/bin/tofu /usr/local/bin/tofu

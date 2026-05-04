@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# chameleon-ci / opentofu — Build & Publish
+# tcwlab / opentofu — Build & Publish
 #
 # Kein einziger Inline-Download. Alle Tools sind in spezialisierten,
 # versionierten Images vorinstalliert:
