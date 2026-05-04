@@ -1,6 +1,7 @@
 # opentofu — Repo context
 
 > **Onboarding handshake:** Read in this order:
+>
 > 1. [`Projects/CLAUDE.md`](https://git.mon.k8b.co/) (global standards)
 > 2. [`tcwlab/CLAUDE.md`](https://git.mon.k8b.co/tcwlab/) (toolchain context)
 > 3. This file (opentofu-specific)

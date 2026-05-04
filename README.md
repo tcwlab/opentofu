@@ -36,10 +36,10 @@ tofu-validate:
 
 ## Tags
 
-| Tag | Description |
-|-----|-------------|
+| Tag                   | Description                                            |
+| --------------------- | ------------------------------------------------------ |
 | `1.11.6`, `1.11`, `1` | Concrete SemVer (recommended for production pipelines) |
-| `latest` | Rolling reference; always points at the newest release |
+| `latest`              | Rolling reference; always points at the newest release |
 
 **Always pin a concrete version in production.** `latest` is fine for local experiments, but pinning protects your pipeline from a toolchain bump that lands without a PR. The major/minor floating tags (`1`, `1.11`) are convenient for internal use; external consumers should pin the full SemVer.
 
@@ -58,14 +58,14 @@ Every tag is a multi-arch manifest list. Docker pulls the right architecture aut
 
 ## What's included
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [`opentofu`](https://opentofu.org/) | `1.11.6` | Infrastructure-as-Code CLI |
-| `curl` | from Alpine 3.23 apk | Download support |
-| `unzip` | from Alpine 3.23 apk | Archive extraction |
-| `git` | from Alpine 3.23 apk | Git operations in containers |
-| `bash` | from Alpine 3.23 apk | Shell compatibility |
-| `ca-certificates` | from Alpine 3.23 apk | TLS/SSL certificate validation |
+| Tool                                | Version              | Purpose                        |
+| ----------------------------------- | -------------------- | ------------------------------ |
+| [`opentofu`](https://opentofu.org/) | `1.11.6`             | Infrastructure-as-Code CLI     |
+| `curl`                              | from Alpine 3.23 apk | Download support               |
+| `unzip`                             | from Alpine 3.23 apk | Archive extraction             |
+| `git`                               | from Alpine 3.23 apk | Git operations in containers   |
+| `bash`                              | from Alpine 3.23 apk | Shell compatibility            |
+| `ca-certificates`                   | from Alpine 3.23 apk | TLS/SSL certificate validation |
 
 Base image: `alpine:3.23`. Default workdir: `/workspace`. Default user: `tofuusr` (non-root, uid auto-assigned).
 
@@ -119,19 +119,19 @@ validate:
 
 ### Volume mount points
 
-| Path | Purpose |
-|------|---------|
+| Path         | Purpose                                   |
+| ------------ | ----------------------------------------- |
 | `/workspace` | Default workdir; mount your IaC repo here |
 
 ### Environment variables
 
 The image passes all environment variables directly to OpenTofu. Common patterns:
 
-| Variable | Example | Purpose |
-|----------|---------|---------|
-| `TF_LOG` | `DEBUG` | Enable OpenTofu debug logging |
-| `TF_VAR_*` | `TF_VAR_region=us-east-1` | Pass input variables |
-| `TF_CLI_ARGS` | `-no-color` | Global CLI arguments |
+| Variable      | Example                   | Purpose                       |
+| ------------- | ------------------------- | ----------------------------- |
+| `TF_LOG`      | `DEBUG`                   | Enable OpenTofu debug logging |
+| `TF_VAR_*`    | `TF_VAR_region=us-east-1` | Pass input variables          |
+| `TF_CLI_ARGS` | `-no-color`               | Global CLI arguments          |
 
 ### Working directory
 
