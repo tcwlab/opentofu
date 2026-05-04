@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # tcwlab/opentofu
 #
-# Minimales Alpine-Image mit gepinnter OpenTofu-Version.
-# Der Image-Tag entspricht der OpenTofu-Version: tcwlab/opentofu:1.11.6
+# Lean Alpine image with pinned OpenTofu version.
+# Image tag corresponds to OpenTofu version: tcwlab/opentofu:1.11.6
 #
-# Unterstützte Plattformen: linux/amd64, linux/arm64
+# Supported platforms: linux/amd64, linux/arm64
 #
 # Build (multi-arch):
 #   docker buildx build --platform linux/amd64,linux/arm64 \
@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 #####
-# STEP 1: base image
+# STAGE 1: base image
 #####
 FROM --platform=$BUILDPLATFORM alpine:3.23 AS base
 ARG BUILDPLATFORM
@@ -23,7 +23,7 @@ RUN apk add -U --no-cache curl unzip git bash ca-certificates && \
     rm -rf /var/cache/apk/*
 
 #####
-# STEP 2: download OpenTofu binary (arch-aware)
+# STAGE 2: download OpenTofu binary (architecture-aware)
 #####
 FROM base AS dependencies
 ARG TOFU_VERSION=1.11.6
@@ -42,7 +42,7 @@ RUN case "$(apk --print-arch)" in \
     tofu version
 
 #####
-# STEP 3: production image
+# STAGE 3: production image
 #####
 FROM base AS release
 ARG TOFU_VERSION=1.11.6
@@ -51,7 +51,7 @@ LABEL org.opencontainers.image.title="opentofu" \
       org.opencontainers.image.description="opentofu — pinned version for reproducible CI" \
       org.opencontainers.image.vendor="The Chameleon Way" \
       org.opencontainers.image.url="https://hub.docker.com/r/tcwlab/opentofu" \
-      org.opencontainers.image.source="https://git.mon.k8b.co/chameleon-ci/opentofu" \
+      org.opencontainers.image.source="https://git.mon.k8b.co/tcwlab/opentofu" \
       org.opencontainers.image.version="${TOFU_VERSION}"
 
 COPY --from=dependencies /usr/local/bin/tofu /usr/local/bin/tofu
