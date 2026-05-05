@@ -2,8 +2,8 @@
 
 > **Onboarding handshake:** Read in this order:
 >
-> 1. [`Projects/CLAUDE.md`](https://git.mon.k8b.co/) (global standards)
-> 2. [`tcwlab/CLAUDE.md`](https://git.mon.k8b.co/tcwlab/) (toolchain context)
+> 1. `Projects/CLAUDE.md` (global standards, workspace-local)
+> 2. `tcwlab/CLAUDE.md` (toolchain context, workspace-local)
 > 3. This file (opentofu-specific)
 
 ---
@@ -22,7 +22,7 @@ Primary consumers are all repos with IaC content — currently `K8Box/provisioni
 
 ## What's inside?
 
-Multi-stage [Dockerfile](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/Dockerfile):
+Multi-stage [Dockerfile](https://github.com/tcwlab/opentofu/blob/main/Dockerfile):
 
 - **Stage 1 — `base`**: `alpine:3.23`, `apk add curl unzip git bash ca-certificates`, `apk upgrade`. BUILDPLATFORM-aware for multi-arch.
 - **Stage 2 — `dependencies`**: arch-detect (`aarch64` → `arm64`, `x86_64` → `amd64`), download OpenTofu release zip from GitHub, unzip to `/usr/local/bin/tofu`, `tofu version` smoke test.
@@ -43,7 +43,7 @@ For each OpenTofu release:
 1. PR on `claude/bump-tofu-<version>`: change `ARG TOFU_VERSION=<x.y.z>` (two locations: `dependencies` + `release`).
 2. CI builds and smoke-tests (`tofu version` in the pipeline).
 3. semantic-release tags `v<version>` and pushes `tcwlab/opentofu:<x.y.z>` plus `tcwlab/opentofu:latest`.
-4. Update [`tcwlab/versions.yaml`](https://git.mon.k8b.co/tcwlab/) at the workspace top level.
+4. Update `tcwlab/versions.yaml` at the workspace top level.
 5. Consumer repos can then bump their `OPENTOFU_VERSION` values in `.forgejo/workflows/ci.yml` — controlled, via PR.
 
 OpenTofu major releases (e.g., 1.x → 2.x) **always** require coordinated consumer migration plus collection of provider-compatibility notes. Leave an ADR-light note in the commit message in the tcwlab workspace.
@@ -52,7 +52,7 @@ OpenTofu major releases (e.g., 1.x → 2.x) **always** require coordinated consu
 
 ## Release procedure
 
-Configured like all other image repos: [`semantic-release`](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/.releaserc) with Forgejo plugin (`@saithodev/semantic-release-gitea`), auto-tag, auto-release. Pipeline pattern from [`templates/docker-image-ci.yml`](https://git.mon.k8b.co/tcwlab/templates): Lint → Build-Test → Trivy-Scan → Auto-Tag + Publish to `tcwlab/opentofu:<x.y.z>`.
+Configured like all other image repos: [`semantic-release`](https://github.com/tcwlab/opentofu/blob/main/.releaserc) with Forgejo plugin (`@saithodev/semantic-release-gitea`), auto-tag, auto-release. Pipeline pattern from [`templates/docker-image-ci.yml`](https://github.com/tcwlab/templates/blob/main/docker-image-ci.yml): Lint → Build-Test → Trivy-Scan → Auto-Tag + Publish to `tcwlab/opentofu:<x.y.z>`.
 
 ---
 
@@ -106,7 +106,7 @@ tofu-validate:
 
 ### Complete from `templates/iac-ci.yml`
 
-See [`templates/iac-ci.yml`](https://git.mon.k8b.co/tcwlab/templates/src/branch/main/iac-ci.yml). Drop-in to `.forgejo/workflows/ci.yml` and set `OPENTOFU_VERSION` to the current value from `versions.yaml`.
+See [`templates/iac-ci.yml`](https://github.com/tcwlab/templates/blob/main/iac-ci.yml). Drop-in to `.forgejo/workflows/ci.yml` and set `OPENTOFU_VERSION` to the current value from `versions.yaml`.
 
 ---
 

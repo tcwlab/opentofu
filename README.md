@@ -11,10 +11,10 @@
 ## Quick start
 
 ```bash
-docker pull tcwlab/opentofu:1.11.6
+docker pull tcwlab/opentofu:latest
 
 # Run against the current directory
-docker run --rm -v "$PWD:/workspace" tcwlab/opentofu:1.11.6 version
+docker run --rm -v "$PWD:/workspace" tcwlab/opentofu:latest version
 ```
 
 Or as a Forgejo / GitHub Actions container job:
@@ -23,7 +23,7 @@ Or as a Forgejo / GitHub Actions container job:
 tofu-validate:
   runs-on: ubuntu-22.04
   container:
-    image: tcwlab/opentofu:1.11.6
+    image: tcwlab/opentofu:latest
   steps:
     - uses: https://data.forgejo.org/actions/checkout@v4
     - run: tofu fmt -check -recursive
@@ -32,9 +32,15 @@ tofu-validate:
                             -execdir tofu validate \;
 ```
 
+> Quick-start examples use `:latest` so you can try the image immediately. For
+> production CI pipelines, pin a concrete tag — see [Tags](#tags) below.
+
 ---
 
 ## Tags
+
+> Version numbers below are illustrative. For the current set of tags, see
+> [Docker Hub tags](https://hub.docker.com/r/tcwlab/opentofu/tags).
 
 | Tag                   | Description                                            |
 | --------------------- | ------------------------------------------------------ |
@@ -161,18 +167,15 @@ Additional benefits:
 
 ## Source, issues, contributing
 
-- **Source (canonical)**: [`git.mon.k8b.co/tcwlab/opentofu`](https://git.mon.k8b.co/tcwlab/opentofu)
-- **Source (mirror)**: [`github.com/tcwlab/opentofu`](https://github.com/tcwlab/opentofu)
+- **Source**: [`github.com/tcwlab/opentofu`](https://github.com/tcwlab/opentofu)
 - **Issues / feature requests**: [`github.com/tcwlab/opentofu/issues`](https://github.com/tcwlab/opentofu/issues)
 - **Docker Hub**: [`hub.docker.com/r/tcwlab/opentofu`](https://hub.docker.com/r/tcwlab/opentofu)
-
-The Forgejo repo on `git.mon.k8b.co` is the source of truth. The GitHub mirror exists so external consumers have a public-facing copy with an issue tracker; please open issues there.
 
 ---
 
 ## Build, supply chain
 
-Every release is built and published by the repo's own [`.forgejo/workflows/ci.yml`](https://git.mon.k8b.co/tcwlab/opentofu/src/branch/main/.forgejo/workflows/ci.yml) on a Forgejo runner:
+Every release is built and published by the repo's own [`.forgejo/workflows/ci.yml`](https://github.com/tcwlab/opentofu/blob/main/.forgejo/workflows/ci.yml) on a Forgejo runner:
 
 - Multi-arch build (`linux/amd64`, `linux/arm64`) via `docker buildx` with `--sbom=true --provenance=mode=max`.
 - Trivy vulnerability scan on `HIGH`/`CRITICAL` severity (failures show up as PR comments).
